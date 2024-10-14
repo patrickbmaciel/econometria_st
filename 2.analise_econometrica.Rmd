@@ -1,0 +1,156 @@
+---
+title: "Análise econométrica do índice de preços de imóveis residenciais no Brasil"
+author: "Patrick B. Maciel"
+date: "2024-07-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+### 0) Realizando configurações iniciais
+
+A princípio, realiza-se a importação de pacotes a serem utilizados, além da leitura da base de dados.
+
+```{r warning=FALSE, message=FALSE}
+
+# 0.1) Limpando RStudio: Environment e Console
+rm(list = ls())
+cat("\014")
+
+# 0.2) Importando pacotes necessários
+library(dplyr)
+library(ggplot2)
+library(plotly)
+
+# 0.3) Lendo base de dados
+df <- readxl::read_excel("inputs/ipeadata[27-03-2024-07-23].xls")
+
+```
+
+### 1) Analisando a série em nível
+
+A série a ser analisada foi retirada do IPEADATA, sendo escolhida para análise os preços de móveis residenciais no Brasil, compreendendo o período de Jan/2010 - Dez/2023.
+
+Analisando o gráfico da série em um primeiro momento observa-se que a série apresenta um processo inicial de tendência determinista, e com forte propensão ao crescimento, indicando que a série não é estacionária, além disso a série de preço de móveis residenciais não apresenta tanta volatilidade, ou seja sofre pouco efeito de choques.
+
+A tendência de crescimento do período de 2010 á 2014, pode ser explicada  devido ao fato de que em 2010 o mercado já começava a se recuperar da crise de 2008. O crescimento foi expressivo até 2014, seguindo de um período de estagnação que corresponde ao período de crise do segundo mandato de Dilma, a estagnação da série pode ser atribuída ao aumento de juros e desemprego. A partir de 2020 o crescimento da série é retomado, possivelmente devido a baixa taxa de juros no mercado, e  a maior oferta de crédito, e as novas tecnologias foram inseridas no setor.
+
+```{r warning=FALSE}
+
+# 1.1) Tratando a base de dados
+df_tratado <- 
+  df %>% 
+  # Renomeiando as colunas do dataframe
+  dplyr::rename(data = 1, ind_preco_imoveis = 2) %>% 
+  # Ajustando a coluna "data"
+  dplyr::mutate(data = gsub("\\.", "-", data),
+                data = paste0(data, "-01"),
+                data = as.Date(data))
+
+# 1.2) Plotando o gráfico da série temporal em nível
+
+# 1.2.1) Construindo o gráfico
+g <- 
+  ggplot(df_tratado, aes(x = data, y = ind_preco_imoveis)) +
+  geom_line(color = "black", size = 1) +
+  labs(title = "Índice FipeZap de Preços de Imóveis Residenciais Anunciados\nreferente às vendas no Brasil: índice (jun/2012 = 100)\nentre jan/2010 a dez/2023.",
+       x = "Data",
+       y = "Índice de Preço de Imóveis Residenciais") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+
+# 1.2.2) Plotando o gráfico
+plotly::ggplotly(g)
+
+```
+
+### 2) Analisando a estacionariedade da série em nível
+
+```{r warning=FALSE}
+
+# 2.1) Construindo a variável defasada para utilizar na regressão
+df_lag <- 
+  df_tratado %>% 
+  dplyr::mutate(l_ind_preco_imoveis = lag(ind_preco_imoveis))
+
+# 2.3) Criando o modelo para analisar a estacionariedade da série
+model <- stats::lm(ind_preco_imoveis ~ l_ind_preco_imoveis - 1, data = df_lag)
+
+# 2.4) Apresentando o resumo do modelo
+summary(model)
+
+# 2.5) Calculando a raiz unitária
+raiz_unitaria <- 1 / model[["coefficients"]][["l_ind_preco_imoveis"]]
+raiz_unitaria
+
+```
+
+Ao realizar o cálculo da raiz unitária, observa-se que L < 1 e, com isso, a série é explosiva. Em outras palavras, a série é não estacionária.
+
+### 3) Analisando o correlograma da série em nível
+
+```{r warning=FALSE}
+
+# 3.1) Plotando o correlograma da série em nível com defasagem de 36 períodos
+
+# 3.2) Construindo o dataframe para plotar correlograma
+df_correlograma <- 
+  df_lag %>%
+  dplyr::select(l_ind_preco_imoveis) %>%
+  stats::na.omit()
+
+# 3.3) Plotando o correlograma
+stats::acf(df_correlograma, lag.max = 36, main = "Correlograma com Defasagem de 36 Períodos")
+
+```
+
+Observando o correlograma com defasagem de 36 períodos, conclui-se também que a série não é estacionária.
+
+### 4) Analisando a série em primeira diferença
+
+Além disso, realizou-se a análise do gráfico de sua primeira diferença, assim como seu correlograma, observando que a série diferenciada ainda é não estacionária.
+
+```{r warning=FALSE}
+
+# 4.1) Gerando a série diferenciada
+df_diff <- 
+  df_lag %>%
+  dplyr::select(data, ind_preco_imoveis) %>% 
+  dplyr::mutate(dif_ind_preco_imoveis = c(NA, diff(ind_preco_imoveis, differences = 1, lag = 1)))
+
+# 4.2) Plotando o gráfico da série temporal em primeira diferença
+
+# 4.2.1) Construindo o gráfico
+g <- 
+  ggplot(df_diff, aes(x = data, y = dif_ind_preco_imoveis)) +
+  geom_line(color = "black", size = 1) +
+  labs(title = "Índice FipeZap de Preços de Imóveis Residenciais Anunciados\nreferente às vendas no Brasil: índice (jun/2012 = 100)\nentre jan/2010 a dez/2023 - Série em primeira diferença.",
+       x = "Data",
+       y = "Índice de Preço de Imóveis Residenciais") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+
+# 4.2.2) Plotando o gráfico
+plotly::ggplotly(g)
+
+# 4.3) Plotando o correlograma da série em primeira diferença com defasagem de 36 períodos
+
+# 4.3.1) Construindo o dataframe para plotar correlograma
+df_correlograma_diff <- 
+  df_diff %>% 
+  dplyr::mutate(l_ind_preco_imoveis = lag(ind_preco_imoveis)) %>% 
+  dplyr::select(l_ind_preco_imoveis) %>%
+  stats::na.omit()
+
+# 4.3.2) Plotando o correlograma
+stats::acf(df_correlograma_diff, lag.max = 36, main = "Correlograma com Defasagem de 36 Períodos")
+
+```
